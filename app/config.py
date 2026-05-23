@@ -1,8 +1,11 @@
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from pydantic import ConfigDict
+import os
 
 class Settings(BaseSettings):
-    openai_api_key: str
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     openai_model: str = "gpt-4o"
     embedding_model: str = "text-embedding-3-small"
 
@@ -19,10 +22,12 @@ class Settings(BaseSettings):
     langchain_api_key: str = ""
     langchain_project: str = "capstone - project"
 
-    class Config:
-        env_file = ".env"
+    model_config = ConfigDict(env_file=".env", extra="ignore")
 
 
 @lru_cache()
 def get_settings():
+    load_dotenv()
     return Settings()
+
+settings = get_settings()
