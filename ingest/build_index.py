@@ -100,7 +100,7 @@ def build_index():
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=100,
-        separators=["\n\n", "\n", ". ", " ", ""],
+        separators=["\n\n", "\n", ". ", " "],
     )
 
     if not settings.openai_api_key:
@@ -140,12 +140,21 @@ def build_index():
             # 3. Apply operational context schemas into chunk metadata layouts
             for doc in text_documents:
                 doc.metadata.update({
-                    "doc_type": doc_type,
-                    "policy_tier": infer_tier(path.name),
+                    "doc_type": doc_type.lower() if isinstance(doc_type, str) else str(doc_type).lower(),
+                    "policy_tier": infer_tier(path.name).lower(),
                     "chunk_id": str(uuid.uuid4())
                 })
                 all_chunks.append(doc)
-            
+
+            # Print a short sample for each PDF so we can validate stored metadata and content
+            if text_documents:
+                sample = text_documents[0]
+                print("    sample metadata:", sample.metadata)
+                try:
+                    print("    sample content:", sample.page_content[:300])
+                except Exception:
+                    pass
+
             print(f"    → {len(text_documents)} chunks (doc_type={doc_type})")
         except Exception as e:
             print(f"  ERROR processing {path}: {e}")
@@ -165,6 +174,11 @@ def build_index():
     output_path = settings.faiss_index_path
     Path(settings.faiss_index_path).mkdir(parents=True, exist_ok=True)
     index.save_local(output_path)
+
+
+    for i in range(len(all_chunks)):
+        print(all_chunks[i].metadata['doc_type'])
+        print(all_chunks[i].metadata['policy_tier'])
 
     print(f"\nFAISS index saved to: {output_path}")
     print(f"Total vectors: {index.index.ntotal}")
