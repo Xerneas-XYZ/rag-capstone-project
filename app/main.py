@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 app = FastAPI(
-    title="ProShield Commercial Insurance AI Copilot",
+    title="HomeShield Insurance AI Copilot",
     version="1.0",
     description=(
         "Self-Reflective RAG (CRAG) copilot for commercial and business insurance. "
