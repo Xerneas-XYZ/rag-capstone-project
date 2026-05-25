@@ -65,14 +65,25 @@ def rewrite_query(query: str, attempt: int, failure_reason: str) -> str:
         failure_reason: Short description of why grading failed.
 
     Returns:
-        Rewritten query string.
+        Rewritten query string (the optimized_query extracted from JSON).
     """
     result = rewriter_chain.invoke({
         "query": query,
         "attempt_num": attempt,
         "failure_reason": failure_reason,
     })
-    return result.content.strip()
+    
+    # Parse the JSON response to extract the optimized_query
+    try:
+        parsed = json.loads(result.content.strip())
+        optimized = parsed.get("optimized_query", query)
+        return optimized if optimized else query
+    except json.JSONDecodeError:
+        # Fallback: if JSON parsing fails, return original query
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Failed to parse rewriter JSON response: {result.content}")
+        return query
 
 
 
