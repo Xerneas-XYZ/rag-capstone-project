@@ -50,6 +50,10 @@ class ChatResponse(BaseModel):
     pii_detected: bool = Field(
         False, description="Whether PII was detected and redacted"
     )
+    mem0: Optional[str] = Field(
+        None,
+        description="Short-term session memory summary for the current conversation",
+    )
 
 
 class HealthResponse(BaseModel):

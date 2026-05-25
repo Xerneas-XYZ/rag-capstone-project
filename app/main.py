@@ -1,5 +1,6 @@
 import logging
 import sys
+import uuid
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.documents import Document
@@ -10,6 +11,7 @@ from app.guardrails.rails import (
     check_prompt_injection, check_off_topic,
     apply_output_guardrails,
 )
+from app.memory import append_session_memory, get_mem0_summary
 from app.config import get_settings
 
 logging.basicConfig(level=logging.INFO)
@@ -82,6 +84,8 @@ async def chat(req: ChatRequest):
     if has_pii:
         logger.warning(f"PII detected and redacted: {pii_types}")
 
+    session_id = req.session_id or str(uuid.uuid4())
+
     # ── 2. Extract business context for CRAG metadata filtering ──────────
     policy_tier = None
     if req.business_context and hasattr(req.business_context, 'policy_tier'):
@@ -109,6 +113,10 @@ async def chat(req: ChatRequest):
         source_docs.append(doc)
     safe_answer, guardrail_passed = apply_output_guardrails(result.answer, source_docs)
 
+    append_session_memory(session_id, "user", clean_query)
+    append_session_memory(session_id, "assistant", safe_answer)
+    mem0_summary = get_mem0_summary(session_id)
+
     return ChatResponse(
         answer=safe_answer,
         confidence=result.confidence,
@@ -116,8 +124,9 @@ async def chat(req: ChatRequest):
         reflections_used=result.reflections,
         used_web_search=result.used_web_search,
         compliance_passed=result.compliance_passed and guardrail_passed,
-        session_id=req.session_id,
+        session_id=session_id,
         pii_detected=has_pii,
+        mem0=mem0_summary,
     )
 
 
