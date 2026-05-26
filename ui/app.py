@@ -1,5 +1,5 @@
 """
-HomeShield Insurance AI Copilot — Streamlit Frontend
+ProShield Commercial Insurance AI Copilot — Streamlit Frontend
 Run: streamlit run ui/app.py --server.port 8501
 """
 import os
@@ -82,33 +82,6 @@ with st.sidebar:
         st.session_state.session_id = str(uuid.uuid4())
         st.rerun()
 
-    if st.button("📥 Export Conversation"):
-        if st.session_state.messages:
-            # Build markdown export
-            export_md = f"# HomeShield AI Conversation Export\n\n"
-            export_md += f"**Session ID:** {st.session_state.session_id}\n\n"
-            export_md += f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-            export_md += "---\n\n"
-            
-            for msg in st.session_state.messages:
-                role = "👤 You" if msg["role"] == "user" else "🤖 Assistant"
-                export_md += f"## {role}\n\n{msg['content']}\n\n"
-                if msg.get("meta"):
-                    m = msg["meta"]
-                    export_md += f"_Confidence: {m.get('confidence')} | Reflections: {m.get('reflections')} | "
-                    export_md += f"Web Search: {'Yes' if m.get('web') else 'No'} | "
-                    export_md += f"Compliant: {'✅' if m.get('compliant') else '⚠️'}_\n\n"
-                export_md += "---\n\n"
-            
-            st.download_button(
-                label="💾 Download as Markdown",
-                data=export_md,
-                file_name=f"homeshield_conversation_{st.session_state.session_id[:8]}.md",
-                mime="text/markdown",
-            )
-        else:
-            st.info("No conversation to export yet.")
-
     st.caption("Session ID: " + st.session_state.get("session_id", "—")[:12] + "...")
 
 # ── Session state ─────────────────────────────────────────────────────────────
@@ -179,7 +152,7 @@ for msg in st.session_state.messages:
 pending = st.session_state.pop("_pending_query", None)
 
 # ── Chat input ────────────────────────────────────────────────────────────────
-prompt = st.chat_input("Ask a home insurance question...") or pending
+prompt = st.chat_input("Ask a commercial insurance question...") or pending
 
 if prompt:
     # Show user message
@@ -285,7 +258,7 @@ if prompt:
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
 footer_cols = st.columns([1, 1, 1, 1])
-footer_cols[0].caption("📧 **Support:** support@homeshield.ai")
-footer_cols[1].caption("📚 **Docs:** [Coverage Guide](https://docs.homeshield.ai)")
+# footer_cols[0].caption("📧 **Support:** contact@proshield.ai")
+# footer_cols[1].caption("📚 **Docs:** [Policy Coverage Guide](https://docs.proshield.ai)")
 footer_cols[2].caption("⚖️ **Disclaimer:** Guidance only — consult your broker for binding confirmation")
 footer_cols[3].caption("🔐 **Session ID:** " + st.session_state.get("session_id", "—")[:8])
