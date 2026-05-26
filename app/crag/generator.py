@@ -1,8 +1,12 @@
+import logging
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from app.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger("app.crag.generator")
+
+# Use a clean base LLM. The generator synthesizes text context; it doesn't need tools anymore!
 llm = ChatOpenAI(model=settings.openai_model, temperature=0)
 
 GENERATE_PROMPT = ChatPromptTemplate.from_messages([
@@ -25,7 +29,6 @@ STRICT RULES:
 
 generate_chain = GENERATE_PROMPT | llm
 
-
 def format_context(chunks: list) -> str:
     """Format retrieved chunks into a clearly labelled context block."""
     parts = []
@@ -39,19 +42,9 @@ def format_context(chunks: list) -> str:
         parts.append(f"{source_label}\n{chunk.page_content}")
     return "\n\n---\n\n".join(parts)
 
-
 def generate_response(query: str, chunks: list, confidence: str = "HIGH") -> str:
-    """
-    Generate a grounded, cited response from retrieved chunks.
-
-    Args:
-        query:      The user's question.
-        chunks:     Passing chunks from the grader.
-        confidence: Pre-determined confidence label (HIGH/MEDIUM/LOW).
-
-    Returns:
-        Formatted response string with citations and disclaimer.
-    """
+    """Generate a grounded, cited response from retrieved chunks."""
     context = format_context(chunks)
+    logger.info("📝 GENERATOR: Synthesizing standard verified policy response.")
     result = generate_chain.invoke({"context": context, "query": query})
     return result.content

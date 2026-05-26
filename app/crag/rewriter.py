@@ -1,94 +1,138 @@
-import json
+import logging
+from typing import Optional
+from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-
 from app.config import get_settings
 
 settings = get_settings()
-llm = ChatOpenAI(model=settings.openai_model, temperature=0.3)
+logger = logging.getLogger(__name__)
 
+# ==========================================================
+# 1. DEFINE EXPLICIT PARAMETER STRUCURES FOR OPENAI COMPLIANCE
+# ==========================================================
+class ToolArgs(BaseModel):
+    """
+    Explicitly defines all possible parameters across all tools.
+    This guarantees compliance with OpenAI's strict schema rules.
+    """
+    postcode: Optional[str] = Field(default=None, description="E.g., 'SW6', 'M1'. Prefix area code.")
+    trade_type: Optional[str] = Field(default=None, description="E.g., 'Roofing', 'Plumbing', 'Building'.")
+    damage_type: Optional[str] = Field(default=None, description="E.g., 'Roof tile replacement'.")
+    property_size: Optional[str] = Field(default=None, description="E.g., '3-bed semi-detached house'.")
+    property_type: Optional[str] = Field(default=None, description="E.g., '1-bed flat', '3-bed semi'.")
+    region: Optional[str] = Field(default=None, description="E.g., 'London', 'South East England'.")
+    claim_id: Optional[str] = Field(default=None, description="E.g., 'CLM-12345'.")
 
-# 1. Update the prompt to output a structured JSON matching your maps
+class RewriteOutput(BaseModel):
+    """Structured JSON schema for query optimization and metadata routing."""
+    optimized_query: str = Field(
+        description="The rewritten query using standard technical insurance vocabulary."
+    )
+    doc_type: Optional[str] = Field(
+        default=None, 
+        description="Mapped document category string: 'claims_procedure', 'coverage_guide', 'home_policy_terms', 'home_insurance_glossary', 'reference_guide', or None."
+    )
+    policy_tier: Optional[str] = Field(
+        default=None, 
+        description="Identified insurance tier string: 'standard', 'comprehensive', 'landlord', or None."
+    )
+    suggested_tool: Optional[str] = Field(
+        default=None, 
+        description="Target database tool: 'contractor_network_lookup', 'damage_cost_estimator', 'rebuilding_cost_estimator', 'claim_status_tracker', or None."
+    )
+    tool_args: Optional[ToolArgs] = Field(
+        default=None,
+        description="Structured key-value arguments container required by the target tool. Leave completely empty if suggested_tool is null."
+    )
+
+# ==========================================================
+# 2. THE ROUTING PROMPT
+# ==========================================================
 REWRITE_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
-        """You are an advanced RAG query optimizer and metadata classifier for HomeShield Insurance documents.
-Analyze the user's failed query and output a strict JSON object containing an optimized search query and metadata filters.
+        """You are an advanced RAG query optimizer, metadata classifier, and tool routing validator for HomeShield Insurance documents.
+Analyze the user's failed query, identify their core operational intent, and determine if a database lookup tool is necessary instead of document text RAG.
 
-Your JSON structure MUST look exactly like this: {{
-    "optimized_query": "string",
-    "doc_type": "string or None",
-    "policy_tier": "string or None"
-}}
+=== STRUCTURAL TOOL MATCHING & PARAMETER SCHEMAS ===
+If a tool is selected, you MUST populate "suggested_tool" with the tool name AND populate the corresponding parameters inside the "tool_args" object:
 
-CRITICAL CLASSIFICATION RULES:
-1. "policy_tier": Identify if the user mentions or implies a specific tier. Map to exactly one of these strings:
-   - "standard" (if they mention basic cover, standard plan, or add-ons like accidental damage)
-   - "comprehensive" (if they mention comprehensive plan or unlimited benefits)
-   - "landlord" (if they mention tenants, rent recovery, or landlord plus)
-   - If no tier is implied, return None.
+1. Tool Name: "contractor_network_lookup"
+   - Use cases: User needs tradespeople, plumbers, builders, or local repair networks.
+   - Populates inside tool_args: "postcode" and "trade_type"
 
-2. "doc_type": Identify the source document category. Map to exactly one of these strings based on intent:
-   - "claims_procedure" (if asking about: steps to take, evidence, what to do first, timelines, receipts, photos, or police reports)
-   - "coverage_guide" (if asking about: high-value items, single article limits, valuables, or jewelry)
-   - "home_policy_terms" (if asking about deep legal definitions, full terms, or general rules)
-   - "home_insurance_glossary" (if asking for a definition of a specific word or insurance jargon)
-   - "reference_guide" (if asking about specific exclusions, what is *not* covered, or peril definitions like storm windspeeds)
-   - "standard" / "comprehensive" / "landlord" (if asking generally about basic table limits, premiums, or cover items for that tier)
+2. Tool Name: "damage_cost_estimator"
+   - Use cases: User needs repair cost estimates, pricing ranges, or valuation bounds for specific damage.
+   - Populates inside tool_args: "damage_type" and "property_size"
 
-3. "optimized_query": Rewrite the query using insurance keywords (e.g., translate "pipe leak" to "Escape of water", "break-in" to "Theft or attempted theft", "hotel" to "Alternative accommodation").
+3. Tool Name: "rebuilding_cost_estimator"
+   - Use cases: User needs regional structural rebuilding index benchmarks or underinsurance risk checks.
+   - Populates inside tool_args: "property_type" and "region"
 
-Return ONLY the JSON string. Do not include markdown code blocks, preambles, or explanations.""",
+4. Tool Name: "claim_status_tracker"
+   - Use cases: User is providing or checking a specific claim ID token.
+   - Populates inside tool_args: "claim_id"
+
+=== CONVERSATIONAL DOCUMENT RAG CRITERIA ===
+- If the query is genuinely a document question (coverage rules, policy exclusions, contract timelines, legal definitions), set "suggested_tool" and "tool_args" to null.
+- Map "policy_tier" to: 'standard', 'comprehensive', or 'landlord'.
+- Map "doc_type" to: 'claims_procedure', 'coverage_guide', 'home_policy_terms', 'home_insurance_glossary', or 'reference_guide'.""",
     ),
     (
         "human",
         "ORIGINAL QUERY: {query}\n"
         "ATTEMPT: {attempt_num}\n"
-        "FAILURE REASON: {failure_reason}\n\n"
-        "JSON Output:",
+        "FAILURE REASON: {failure_reason}\n",
     ),
 ])
 
+# Initialize the structured optimization chain
+llm = ChatOpenAI(model=settings.openai_model, temperature=0.6)
+rewriter_chain = REWRITE_PROMPT | llm.with_structured_output(RewriteOutput)
 
-
-
-rewriter_chain = REWRITE_PROMPT | llm
-
-
-def rewrite_query(query: str, attempt: int, failure_reason: str) -> str:
+# ==========================================================
+# 3. EXECUTABLE REWRITE ROUTINE
+# ==========================================================
+def rewrite_query(query: str, attempt: int, failure_reason: str) -> dict:
     """
-    Rewrite a query that failed retrieval grading.
-
-    Args:
-        query:          Original user query.
-        attempt:        Reflection iteration number (1 or 2).
-        failure_reason: Short description of why grading failed.
-
-    Returns:
-        Rewritten query string (the optimized_query extracted from JSON).
+    Optimizes a failed query, extracts structural metadata, and packages 
+    the exact arguments required by the target tool to prevent validation faults.
     """
-    result = rewriter_chain.invoke({
-        "query": query,
-        "attempt_num": attempt,
-        "failure_reason": failure_reason,
-    })
-    
-    # Parse the JSON response to extract the optimized_query
+    logger.info(f"🔄 REWRITER: Optimizing query parameters for iteration attempt {attempt}...")
     try:
-        parsed = json.loads(result.content.strip())
-        optimized = parsed.get("optimized_query", query)
-        return optimized if optimized else query
-    except json.JSONDecodeError:
-        # Fallback: if JSON parsing fails, return original query
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.warning(f"Failed to parse rewriter JSON response: {result.content}")
-        return query
+        structured_response = rewriter_chain.invoke({
+            "query": query,
+            "attempt_num": attempt,
+            "failure_reason": failure_reason,
+        })
+        
+        # Convert the structural model output into a base dictionary
+        output_dict = {
+            "optimized_query": structured_response.optimized_query,
+            "doc_type": structured_response.doc_type,
+            "policy_tier": structured_response.policy_tier,
+            "suggested_tool": structured_response.suggested_tool,
+            "tool_args": {}
+        }
 
-
-
-
-
-
-
-
+        assert output_dict
+        
+        # Unpack only the active parameters that were generated into a clean flat dictionary
+        if structured_response.tool_args:
+            output_dict["tool_args"] = {
+                k: v for k, v in structured_response.tool_args.model_dump().items() if v is not None
+            }
+            
+        logger.info(f"📋 REWRITER ANALYSIS: Generated complete context payload -> {output_dict}")
+        return output_dict
+        
+    except Exception as e:
+        logger.error(f"❌ REWRITER FAULT: Falling back to clean state. Trace: {e}", exc_info=True)
+        return {
+            "optimized_query": query,
+            "doc_type": None,
+            "policy_tier": None,
+            "suggested_tool": None,
+            "tool_args": {}
+        }
